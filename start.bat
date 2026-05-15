@@ -32,17 +32,24 @@ if %errorlevel% neq 0 (
     echo.
 )
 
+:: Check if pre-built venv exists
+if exist ".\.venv\Scripts\python.exe" (
+    echo [Setup] Using bundled environment, skipping uv...
+    set USE_VENV=1
+    goto :start_server
+)
+
+:: No venv found - need to set up with uv
+echo [Setup] Environment not found, setting up with uv...
+
 set UV_CACHE_DIR=
 set UV_CONFIG_FILE=NUL
 
-echo [Setup] Checking uv package manager...
 if not exist ".\uv.exe" (
     echo [Setup] Downloading uv...
     curl.exe -L -o uv.zip "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" 2>nul
     if not exist ".\uv.zip" (
-        echo [ERROR] Failed to download uv. Check your internet connection.
-        echo [ERROR] Manual download: https://github.com/astral-sh/uv/releases
-        echo [ERROR] Extract uv.exe and uvx.exe to this folder, then re-run.
+        echo [ERROR] Failed to download uv
         pause
         exit /b 1
     )
@@ -53,17 +60,17 @@ if not exist ".\uv.exe" (
         pause
         exit /b 1
     )
-    echo [Setup] uv installed successfully
 )
 
-echo [Setup] Installing Python dependencies...
+echo [Setup] Installing dependencies...
 .\uv.exe sync --cache-dir ".\uv_cache"
 if %errorlevel% neq 0 (
-    echo [ERROR] Dependency installation failed
+    echo [ERROR] Installation failed
     pause
     exit /b 1
 )
 
+:start_server
 echo.
 echo [Start] Nexus Flux Studio starting...
 echo.
@@ -71,5 +78,10 @@ echo   Press Ctrl+C to stop
 echo.
 
 start "" http://localhost:8000
-.\uv.exe run --cache-dir ".\uv_cache" python main.py
+
+if "%USE_VENV%"=="1" (
+    ".\.venv\Scripts\python" main.py
+) else (
+    .\uv.exe run --cache-dir ".\uv_cache" python main.py
+)
 pause

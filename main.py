@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from db import init_db, add_generation, get_history
 from engine import engine, OUTPUTS_DIR
@@ -37,23 +37,23 @@ app.add_middleware(
 _executor = ThreadPoolExecutor(max_workers=1)
 _active_ws: dict[str, WebSocket] = {}
 
+# ── API Router ────────────────────────────────────────────────────────
+api = APIRouter(prefix="/api")
 
-# ---------------------------------------------------------------------------
-# REST endpoints
-# ---------------------------------------------------------------------------
-@app.get("/api/models")
+
+@api.get("/models")
 def list_models():
     models = engine.get_available_models()
     return {"models": models}
 
 
-@app.post("/api/load-model")
+@api.post("/load-model")
 def load_model(model_name: str = Form(...), pipe_type: str = Form("txt2img")):
     msg = engine.load_model(model_name, pipe_type)
     return {"status": "ok", "message": msg, "current_model": engine.current_model, "current_mode": engine.current_mode}
 
 
-@app.post("/api/generate")
+@api.post("/generate")
 async def generate_image(
     prompt: str = Form(...),
     negative_prompt: str = Form(""),
@@ -68,13 +68,6 @@ async def generate_image(
 ):
     loop = asyncio.get_running_loop()
 
-    def on_progress(step: int, total: int, status: str):
-        """Thread-safe progress dispatcher — broadcasts to all WebSocket clients."""
-        msg = json.dumps({"type": "progress", "step": step, "total": total, "status": status})
-        loop.call_soon_threadsafe(
-            lambda: asyncio.ensure_future(_broadcast_progress(msg))
-        )
-
     async def _broadcast_progress(msg: str):
         dead = []
         for sid, ws in list(_active_ws.items()):
@@ -84,6 +77,12 @@ async def generate_image(
                 dead.append(sid)
         for sid in dead:
             _active_ws.pop(sid, None)
+
+    def on_progress(step: int, total: int, status: str):
+        msg = json.dumps({"type": "progress", "step": step, "total": total, "status": status})
+        loop.call_soon_threadsafe(
+            lambda: asyncio.ensure_future(_broadcast_progress(msg))
+        )
 
     ref_path: Optional[str] = None
     if reference_image and reference_image.filename:
@@ -111,33 +110,24 @@ async def generate_image(
         )
 
         add_generation(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            seed=seed_used,
-            steps=steps,
-            guidance=guidance,
+            prompt=prompt, negative_prompt=negative_prompt,
+            seed=seed_used, steps=steps, guidance=guidance,
             model_name=engine.current_model or "unknown",
-            mode=mode,
-            image_path=str(out_path.name),
-            width=width,
-            height=height,
+            mode=mode, image_path=str(out_path.name),
+            width=width, height=height,
         )
 
-        return {
-            "status": "ok",
-            "image_url": f"/outputs/{out_path.name}",
-            "seed": seed_used,
-        }
+        return {"status": "ok", "image_url": f"/outputs/{out_path.name}", "seed": seed_used}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
-@app.get("/api/history")
+@api.get("/history")
 def history(limit: int = 50, offset: int = 0):
     return {"history": get_history(limit=limit, offset=offset)}
 
 
-@app.get("/api/status")
+@api.get("/status")
 def status():
     return {
         "model_loaded": engine.is_loaded,
@@ -147,9 +137,9 @@ def status():
     }
 
 
-# ---------------------------------------------------------------------------
-# WebSocket for real-time progress
-# ---------------------------------------------------------------------------
+app.include_router(api)
+
+# ── WebSocket ──────────────────────────────────────────────────────────
 @app.websocket("/ws/progress")
 async def ws_progress(ws: WebSocket):
     await ws.accept()
@@ -163,10 +153,7 @@ async def ws_progress(ws: WebSocket):
     finally:
         _active_ws.pop(ws_id, None)
 
-
-# ---------------------------------------------------------------------------
-# Static files
-# ---------------------------------------------------------------------------
+# ── Static files ───────────────────────────────────────────────────────
 @app.get("/outputs/{filename}")
 def serve_output(filename: str):
     return FileResponse(OUTPUTS_DIR / filename)
@@ -176,13 +163,20 @@ if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
 
 
-@app.get("/{full_path:path}")
-async def serve_frontend(full_path: str = ""):
-    """Serve the React SPA — fallback to index.html."""
+@app.get("/")
+def serve_index():
     index_path = DIST_DIR / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
-    return {"status": "ok", "message": "Nexus Flux Studio API is running. Frontend not built yet."}
+    return HTMLResponse("<h1>Frontend not built. Run: cd frontend && npm run build</h1>", status_code=404)
+
+
+@app.get("/{path:path}")
+def serve_spa(path: str):
+    index_path = DIST_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return HTMLResponse("<h1>Frontend not built</h1>", status_code=404)
 
 
 if __name__ == "__main__":

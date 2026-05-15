@@ -9,3 +9,6 @@ frontend/node_modules/
 uv.lock
 uv.zip
 uv_cache/
+uv.exe
+uvw.exe
+uvx.exe

@@ -1,89 +1,72 @@
 @echo off
-chcp 65001 >nul
 title Nexus Flux Studio
+cd /d "%~dp0"
 
 echo.
 echo   =============================================
 echo         Nexus Flux Studio v1.0
-echo         RTX 5090 专属优化 · BF16 模式
+echo         RTX 5090 Optimized - BF16 Mode
 echo   =============================================
 echo.
 
-cd /d "%~dp0"
+if not exist ".\models\flux" mkdir ".\models\flux"
 
-:: ============================================================
-:: Step 0: 检查模型目录
-:: ============================================================
-if not exist ".\models\flux" (
-    echo [警告] 未找到 models\flux 目录，正在创建...
-    mkdir ".\models\flux"
-)
-echo [检查] 模型目录: models\flux\
+echo [Check] Model directory: models\flux\
 dir /b ".\models\flux" 2>nul | findstr . >nul
 if %errorlevel% neq 0 (
     echo.
-    echo   !!! 注意: models\flux\ 下还没有模型文件夹 !!!
+    echo   [WARNING] No model folders found in models\flux\
+    echo   Please add your Flux model before generating.
     echo.
-    echo   请按以下结构放入 Flux 模型:
-    echo   ----------------------------------------
-    echo   models\flux\[模型名]\
-    echo     transformer\diffusion_pytorch_model.safetensors
-    echo     text_encoder\model.safetensors
-    echo     text_encoder_2\model.safetensors
-    echo     vae\diffusion_pytorch_model.safetensors
-    echo     scheduler\scheduler_config.json
-    echo   ----------------------------------------
-    echo.
-    echo   服务器仍会启动，但需要放入模型后才能生成图片。
+    echo   Required structure:
+    echo     models\flux\[model-name]\
+    echo       transformer\diffusion_pytorch_model.safetensors
+    echo       text_encoder\model.safetensors
+    echo       text_encoder_2\model.safetensors
+    echo       vae\diffusion_pytorch_model.safetensors
+    echo       scheduler\scheduler_config.json
     echo.
 ) else (
-    echo [检查] 已发现以下模型文件夹:
+    echo [Check] Model folders found:
     for /d %%i in (".\models\flux\*") do echo   - %%~ni
     echo.
 )
 
-:: ============================================================
-:: Step 1: 检查/下载 uv 包管理器
-:: ============================================================
+echo [Setup] Checking uv package manager...
 if not exist ".\uv.exe" (
-    echo [下载] 正在获取 uv 包管理器...
-    powershell -Command "Invoke-WebRequest -Uri https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip -OutFile uv.zip" 2>nul
-    powershell -Command "Expand-Archive -Path uv.zip -DestinationPath . -Force" 2>nul
-    del uv.zip 2>nul
-    if not exist ".\uv.exe" (
-        echo [失败] 无法下载 uv.exe，请手动从以下地址下载并放到此目录:
-        echo        https://github.com/astral-sh/uv/releases
+    echo [Setup] Downloading uv...
+    powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip' -OutFile 'uv.zip'" 2>nul
+    if not exist ".\uv.zip" (
+        echo [ERROR] Failed to download uv. Please check your internet connection.
+        echo [ERROR] You can manually download from: https://github.com/astral-sh/uv/releases
+        echo [ERROR] Extract uv.exe to this folder and re-run start.bat
         pause
         exit /b 1
     )
-    echo [完成] uv 已就绪
+    powershell -ExecutionPolicy Bypass -Command "Expand-Archive -Path 'uv.zip' -DestinationPath '.' -Force" 2>nul
+    del uv.zip 2>nul
+    if not exist ".\uv.exe" (
+        echo [ERROR] Failed to extract uv.exe
+        pause
+        exit /b 1
+    )
+    echo [Setup] uv installed successfully
 )
 
-:: ============================================================
-:: Step 2: 安装 Python 依赖
-:: ============================================================
-echo.
-echo [安装] 正在安装 Python 依赖 (首次运行约2-5分钟)...
+echo [Setup] Installing Python dependencies...
 .\uv.exe sync
 if %errorlevel% neq 0 (
-    echo [失败] 依赖安装失败，请检查网络连接后重试
+    echo [ERROR] Dependency installation failed
     pause
     exit /b 1
 )
-echo [完成] 依赖已就绪
 
-:: ============================================================
-:: Step 3: 启动服务器
-:: ============================================================
 echo.
-echo [启动] Nexus Flux Studio 正在启动...
+echo [Start] Nexus Flux Studio starting...
 echo.
-echo   ┌──────────────────────────────────────┐
-echo   │   浏览器打开: http://localhost:8000    │
-echo   │   按 Ctrl+C 停止服务器                 │
-echo   └──────────────────────────────────────┘
+echo   Open http://localhost:8000 in your browser
+echo   Press Ctrl+C to stop
 echo.
 
 .\uv.exe run python main.py
-
 pause

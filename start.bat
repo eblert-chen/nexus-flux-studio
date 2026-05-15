@@ -32,22 +32,22 @@ if %errorlevel% neq 0 (
     echo.
 )
 
-:: Force uv cache to project directory — avoids system config permission issues
+:: Force uv cache to project directory
 set UV_CACHE_DIR=%~dp0uv_cache
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%"
 
 echo [Setup] Checking uv package manager...
 if not exist ".\uv.exe" (
     echo [Setup] Downloading uv...
-    powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip' -OutFile 'uv.zip'" 2>nul
+    curl.exe -L -o uv.zip "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" 2>nul
     if not exist ".\uv.zip" (
-        echo [ERROR] Failed to download uv. Please check your internet connection.
-        echo [ERROR] You can manually download from: https://github.com/astral-sh/uv/releases
-        echo [ERROR] Extract uv.exe to this folder and re-run start.bat
+        echo [ERROR] Failed to download uv. Check your internet connection.
+        echo [ERROR] Manual download: https://github.com/astral-sh/uv/releases
+        echo [ERROR] Extract uv.exe and uvx.exe to this folder, then re-run.
         pause
         exit /b 1
     )
-    powershell -ExecutionPolicy Bypass -Command "Expand-Archive -Path 'uv.zip' -DestinationPath '.' -Force" 2>nul
+    tar -xf uv.zip 2>nul
     del uv.zip 2>nul
     if not exist ".\uv.exe" (
         echo [ERROR] Failed to extract uv.exe

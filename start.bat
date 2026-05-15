@@ -32,6 +32,10 @@ if %errorlevel% neq 0 (
     echo.
 )
 
+:: Force uv cache to project directory — avoids system config permission issues
+set UV_CACHE_DIR=%~dp0uv_cache
+if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%"
+
 echo [Setup] Checking uv package manager...
 if not exist ".\uv.exe" (
     echo [Setup] Downloading uv...

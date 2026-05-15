@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+nexus_history.db
+outputs/
+uploads/
+frontend/node_modules/
+*.egg-info/
+uv.lock
+uv.zip

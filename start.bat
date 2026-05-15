@@ -32,45 +32,49 @@ if %errorlevel% neq 0 (
     echo.
 )
 
-:: Check if pre-built venv exists
-if exist ".\.venv\Scripts\python.exe" (
-    echo [Setup] Using bundled environment, skipping uv...
-    set USE_VENV=1
-    goto :start_server
+:: Clean any stale/portable venv from other machines
+if exist ".\.venv\pyvenv.cfg" (
+    findstr /c:"home = " ".\.venv\pyvenv.cfg" >nul 2>&1
+    if exist ".\.venv\Scripts\python.exe" (
+        ".\.venv\Scripts\python" -c "exit(0)" >nul 2>&1
+        if %errorlevel% neq 0 (
+            echo [Setup] Removing non-portable venv from other machine...
+            rmdir /s /q ".\.venv" 2>nul
+        )
+    )
 )
 
-:: No venv found - need to set up with uv
-echo [Setup] Environment not found, setting up with uv...
-
+:: Block system uv config from interfering
 set UV_CACHE_DIR=
 set UV_CONFIG_FILE=NUL
 
+:: Download uv if needed
+echo [Setup] Checking uv...
 if not exist ".\uv.exe" (
     echo [Setup] Downloading uv...
     curl.exe -L -o uv.zip "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" 2>nul
     if not exist ".\uv.zip" (
-        echo [ERROR] Failed to download uv
+        echo [ERROR] Failed to download uv. Check internet.
         pause
         exit /b 1
     )
     tar -xf uv.zip 2>nul
     del uv.zip 2>nul
-    if not exist ".\uv.exe" (
-        echo [ERROR] Failed to extract uv.exe
-        pause
-        exit /b 1
-    )
 )
-
-echo [Setup] Installing dependencies...
-.\uv.exe sync --cache-dir ".\uv_cache"
-if %errorlevel% neq 0 (
-    echo [ERROR] Installation failed
+if not exist ".\uv.exe" (
+    echo [ERROR] uv.exe not found
     pause
     exit /b 1
 )
 
-:start_server
+echo [Setup] Installing Python environment ^(first run may take a few minutes^)...
+.\uv.exe sync --no-config --cache-dir ".\uv_cache"
+if %errorlevel% neq 0 (
+    echo [ERROR] Environment setup failed
+    pause
+    exit /b 1
+)
+
 echo.
 echo [Start] Nexus Flux Studio starting...
 echo.
@@ -78,10 +82,5 @@ echo   Press Ctrl+C to stop
 echo.
 
 start "" http://localhost:8000
-
-if "%USE_VENV%"=="1" (
-    ".\.venv\Scripts\python" main.py
-) else (
-    .\uv.exe run --cache-dir ".\uv_cache" python main.py
-)
+.\uv.exe run --no-config --cache-dir ".\uv_cache" python main.py
 pause

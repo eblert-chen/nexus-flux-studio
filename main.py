@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -16,6 +17,19 @@ from engine import engine, OUTPUTS_DIR
 
 BASE_DIR = Path(__file__).resolve().parent
 DIST_DIR = BASE_DIR / "frontend" / "dist"
+
+# ── Startup diagnostic ─────────────────────────────────────────────────
+print(f"[Nexus Flux] BASE_DIR  = {BASE_DIR}")
+print(f"[Nexus Flux] DIST_DIR  = {DIST_DIR}")
+print(f"[Nexus Flux] DIST exists = {DIST_DIR.exists()}")
+if DIST_DIR.exists():
+    print(f"[Nexus Flux] DIST contents = {list(DIST_DIR.iterdir())}")
+    index = DIST_DIR / "index.html"
+    print(f"[Nexus Flux] index.html exists = {index.exists()}")
+else:
+    print("[Nexus Flux] *** WARNING: frontend/dist/ not found! ***")
+    print("[Nexus Flux] *** The web UI will show a 404 page. ***")
+    print("[Nexus Flux] *** Run: cd frontend && npm run build ***")
 
 
 @asynccontextmanager
@@ -34,17 +48,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── API Router ─────────────────────────────────────────────────────────
+api = APIRouter(prefix="/api")
 _executor = ThreadPoolExecutor(max_workers=1)
 _active_ws: dict[str, WebSocket] = {}
-
-# ── API Router ────────────────────────────────────────────────────────
-api = APIRouter(prefix="/api")
 
 
 @api.get("/models")
 def list_models():
-    models = engine.get_available_models()
-    return {"models": models}
+    return {"models": engine.get_available_models()}
 
 
 @api.post("/load-model")
@@ -68,7 +80,7 @@ async def generate_image(
 ):
     loop = asyncio.get_running_loop()
 
-    async def _broadcast_progress(msg: str):
+    async def _broadcast(msg: str):
         dead = []
         for sid, ws in list(_active_ws.items()):
             try:
@@ -80,9 +92,7 @@ async def generate_image(
 
     def on_progress(step: int, total: int, status: str):
         msg = json.dumps({"type": "progress", "step": step, "total": total, "status": status})
-        loop.call_soon_threadsafe(
-            lambda: asyncio.ensure_future(_broadcast_progress(msg))
-        )
+        loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_broadcast(msg)))
 
     ref_path: Optional[str] = None
     if reference_image and reference_image.filename:
@@ -96,19 +106,13 @@ async def generate_image(
         out_path, seed_used = await loop.run_in_executor(
             _executor,
             lambda: engine.generate(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                seed=seed,
-                steps=steps,
-                guidance=guidance,
-                width=width,
-                height=height,
+                prompt=prompt, negative_prompt=negative_prompt,
+                seed=seed, steps=steps, guidance=guidance,
+                width=width, height=height,
                 image_path=ref_path if mode == "img2img" else None,
-                strength=strength,
-                progress_callback=on_progress,
+                strength=strength, progress_callback=on_progress,
             ),
         )
-
         add_generation(
             prompt=prompt, negative_prompt=negative_prompt,
             seed=seed_used, steps=steps, guidance=guidance,
@@ -116,7 +120,6 @@ async def generate_image(
             mode=mode, image_path=str(out_path.name),
             width=width, height=height,
         )
-
         return {"status": "ok", "image_url": f"/outputs/{out_path.name}", "seed": seed_used}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -159,26 +162,27 @@ def serve_output(filename: str):
     return FileResponse(OUTPUTS_DIR / filename)
 
 
-if DIST_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
-
-
 @app.get("/")
 def serve_index():
-    index_path = DIST_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
-    return HTMLResponse("<h1>Frontend not built. Run: cd frontend && npm run build</h1>", status_code=404)
-
-
-@app.get("/{path:path}")
-def serve_spa(path: str):
     index_path = DIST_DIR / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
     return HTMLResponse("<h1>Frontend not built</h1>", status_code=404)
 
 
+@app.get("/{path:path}")
+def serve_spa(path: str):
+    file_path = DIST_DIR / path
+    if file_path.exists():
+        return FileResponse(file_path)
+    index_path = DIST_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return HTMLResponse("<h1>Not found</h1>", status_code=404)
+
+
 if __name__ == "__main__":
     import uvicorn
+    print(f"[Nexus Flux] Python  = {sys.executable}")
+    print(f"[Nexus Flux] CWD     = {Path.cwd()}")
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)
